@@ -32,6 +32,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
             })
             .catch(err => sendResponse('Authentication failed. Wrong code?'));
+    } else if (request.action == 'get_slug') {
+        fetch(`https://api.trakt.tv/search/imdb/${request.imdbId}`, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    'trakt-api-version': '2',
+                    'trakt-api-key': client_id
+                }
+            })
+            .then(result => result.json())
+            .then(showData => {
+                if (showData.length >= 1) {
+                    if (showData[0].show) {
+                        let slug = showData[0].show.ids.slug;
+                        sendResponse(slug);
+                    }
+                }
+            })
+            .catch(playError => sendResponse(`FST Error: ${playError}`));
+
     } else if (request.action == 'start' || request.action == 'pause' || request.action == 'stop') {
         fetch(`https://api.trakt.tv/shows/${request.slug}/seasons/${request.season}/episodes/${request.episode}`, {
                 method: 'GET',
@@ -71,10 +92,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                                 }
                             }
                         })
-                        .catch(playError => sendResponse(`Error: ${playError}`));
+                        .catch(playError => sendResponse(`FST Error: ${playError}`));
                 }
             })
-            .catch(err => sendResponse(`Error: ${err}`));
+            .catch(err => sendResponse(`FST Error: ${err}`));
     }
     return true;
 });

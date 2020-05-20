@@ -1,7 +1,7 @@
 const state = {
     "isPlaying": false,
     "isScrobbled": false,
-    "imdbId": "undefined",
+    "slug": "undefined",
     "season": -1,
     "episode": -1,
     "elapsed": "00:00",
@@ -143,19 +143,21 @@ const setup = () => {
 
         //Gather data about playing episode
         state.duration = durationToSeconds(document.getElementsByClassName('jw-text-duration')[0].textContent);
-        const imdbLink = document.querySelector('[title="Open IMDb"]').getAttribute('href').split('/');
-        state.imdbId = imdbLink[imdbLink.length - 1];
         state.season = document.querySelector('[class="outPes"]').innerHTML;
         state.episode = episodeElement.innerHTML;
+        const imdbLink = document.querySelector('[title="Open IMDb"]').getAttribute('href').split('/');
+        let imdbId = imdbLink[imdbLink.length - 1];
+
+        chrome.runtime.sendMessage({
+            action: 'get_slug',
+            imdbId: imdbId
+        }, setShowSlug);
 
         //Reset initial state
         state.isScrobbled = false;
         state.elapsed = '00:00';
 
         console.log("FST: Listeners set up and data gathered.");
-
-        //Start scrobbling and force action to play
-        playPauseListener(true);
     } else {
         currentTimeout = setTimeout(setup, 1000);
     }
@@ -225,7 +227,7 @@ const durationToSeconds = (durationString) => {
 const callTraktApi = (action) => {
     chrome.runtime.sendMessage({
         action: action,
-        slug: state.imdbId,
+        slug: state.slug,
         season: state.season,
         episode: state.episode,
         progress: 100 * durationToSeconds(state.elapsed) / state.duration
@@ -233,6 +235,17 @@ const callTraktApi = (action) => {
 }
 
 const backgroundFeedback = (msg) => console.log(`FST-background: ${msg}`);
+
+/**
+ * Sets the slug in the state from the background using a callback.
+ * @param {Slug string} slug 
+ */
+const setShowSlug = (slug) => {
+    state.slug = slug;
+
+    //Start scrobbling and force action to play (Needs to happen after slug is available)
+    playPauseListener(true);
+}
 
 
 
