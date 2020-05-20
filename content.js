@@ -1,7 +1,7 @@
 const state = {
     "isPlaying": false,
     "isScrobbled": false,
-    "slug": "undefined",
+    "imdbId": "undefined",
     "season": -1,
     "episode": -1,
     "elapsed": "00:00",
@@ -143,7 +143,8 @@ const setup = () => {
 
         //Gather data about playing episode
         state.duration = durationToSeconds(document.getElementsByClassName('jw-text-duration')[0].textContent);
-        state.slug = document.querySelector('[property="og:url"]').getAttribute('content').split('/')[6];
+        const imdbLink = document.querySelector('[title="Open IMDb"]').getAttribute('href').split('/');
+        state.imdbId = imdbLink[imdbLink.length - 1];
         state.season = document.querySelector('[class="outPes"]').innerHTML;
         state.episode = episodeElement.innerHTML;
 
@@ -187,15 +188,19 @@ const playPauseListener = (forcePlay = false) => {
  * Also called manually whenever another episode is clicked from an episode link.
  */
 const stopListener = () => {
-    let progress = 100 * durationToSeconds(state.elapsed) / state.duration;
-    //Require progress of more than 90% to call stop action to scrobble the episode
-    let action = progress > 90 && !state.isScrobbled ? 'stop' : 'pause';
-    state.isScrobbled = state.isScrobbled || progress > 90;
+    if (state.imdbId != 'undefined' && state.episode != -1 && state.season != -1) {
+        let progress = 100 * durationToSeconds(state.elapsed) / state.duration;
+        //Require progress of more than 90% to call stop action to scrobble the episode
+        let action = progress > 90 && !state.isScrobbled ? 'stop' : 'pause';
+        state.isScrobbled = state.isScrobbled || progress > 90;
 
-    callTraktApi(action);
-    elapsedObserver.disconnect();
-    episodeObserver.disconnect();
-    playerWrapperObserver.disconnect();
+        callTraktApi(action);
+        if (playerIsReady()) {
+            elapsedObserver.disconnect();
+            episodeObserver.disconnect();
+            playerWrapperObserver.disconnect();
+        }
+    }
 }
 
 /**
@@ -220,7 +225,7 @@ const durationToSeconds = (durationString) => {
 const callTraktApi = (action) => {
     chrome.runtime.sendMessage({
         action: action,
-        slug: state.slug,
+        slug: state.imdbId,
         season: state.season,
         episode: state.episode,
         progress: 100 * durationToSeconds(state.elapsed) / state.duration
@@ -236,7 +241,5 @@ window.onload = init;
 
 //When the user moves along from the window
 window.onbeforeunload = () => {
-    if (playerIsReady()) {
-        stopListener();
-    }
-};
+    stopListener();
+}
