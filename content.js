@@ -1,30 +1,52 @@
-let currentInterval;
+const state = {
+    "isPlaying": false,
+    "isScrobbled": false,
+    "slug": "undefined",
+    "season": -1,
+    "episode": -1,
+    "elapsed": "00:00",
+    "duration": -1,
+}
+
 let currentTimeout;
-let showSlug, episode, season, duration, elapsed;
-let isPlaying = false;
-let isScrobbled = false;
+let playerLookCount;
 
+//Observers global in order to disconnect them elsewhere
+let elapsedObserver;
+let episodeObserver;
+let playerWrapperObserver;
+const obsConfig = {
+    attributes: false,
+    childList: true,
+    subtree: true
+};
 
-//Ran on page load
-const init = () => {
+const init = (lookForPlayer = true) => {
     //Get all episode links
     const episodeLinks = document.querySelectorAll('[itemprop=episode]'); //get all episode links
     //Add listeners to the episode links
     addEpisodeListeners(episodeLinks);
 
-    //If the player is already present, listen
-    if (playerIsPresent()) {
-        listenToPlayer();
+    if (lookForPlayer) {
+        //Setup player listening right away in case a player is present at the landing page
+        playerLookCount = 0;
+        instantPlayerListening();
     }
 }
 
 /**
- * Checks the HTML source code to determine whether a player is present or not.
+ * Tries 6 times to setup player listeners. If fails. No player present probably.
  */
-const playerIsPresent = () => {
-    const player = document.getElementById('player');
-    const playerClasses = player.getAttribute('class');
-    return playerClasses.includes('jwplayer');
+const instantPlayerListening = () => {
+    if (playerLookCount == 5) {
+        return;
+    }
+    if (playerIsAvailable()) {
+        setup();
+    } else {
+        playerLookCount++;
+        currentTimeout = setTimeout(instantPlayerListening, 1000);
+    }
 }
 
 /**
@@ -34,82 +56,146 @@ const playerIsPresent = () => {
 const addEpisodeListeners = (episodes) => {
     episodes.forEach(element => {
         element.onclick = () => {
-            if (isPlaying) {
-                stopOrPause();
+            if (state.isPlaying || state.elapsed != '00:00') {
+                stopListener();
             }
-            initPlayerListening();
+            setup();
         };
     });
+    console.log("FST: Episode listeners added.");
 }
 
 /**
- * Initialze the listening on the player by continuously trying to find the player and when it is found, listen
- * The function calls itself every second until the player is present
+ * Checks the HTML source code to determine whether a player is present and ready or not
  */
-const initPlayerListening = () => {
-    if (playerIsPresent()) {
-        clearTimeout(currentTimeout); //Clear the last made timeout. Used to make sure we don't have two timeouts at once.
-        listenToPlayer();
-    } else {
-        currentTimeout = setTimeout(initPlayerListening, 1000);
+const playerIsReady = () => {
+    if (playerIsAvailable()) {
+        //Player is present
+        let playerstate = document.getElementsByClassName('playerstate')[0].innerText;
+        return playerstate.includes('Paused') || playerstate.includes('Playing');
     }
 }
 
 /**
- * The interval will check the elapsed time once every second. If the elapsed time does not change for 3 seconds, the episode is considered paused.
- * If a paused episodes elapsed time changes, it will be considered playing again.
+ * Checks if there is a player available
  */
-const listenToPlayer = () => {
-    //Clear potential other intervals
-    clearInterval(currentInterval);
+const playerIsAvailable = () => {
+    const player = document.getElementById('player');
+    const playerClasses = player.getAttribute('class');
+    return playerClasses.includes('jwplayer');
+}
 
-    //Initial state
-    isPlaying = false;
-    isScrobbled = false;
+/**
+ * Initialze the listening on the player by continuously trying to find the player and when it is found, setup listeners.
+ * The function calls itself every second until the player is present
+ */
+const setup = () => {
+    if (playerIsReady()) {
+        clearTimeout(currentTimeout); //Clear the last made timeout. Used to make sure we don't have two timeouts at once.
 
+        //Add an event listener to the play/pause div
+        let playPauseDiv = document.getElementsByClassName('jw-icon jw-icon-inline jw-button-color jw-reset jw-icon-playback')[0];
+        playPauseDiv.addEventListener('click', playPauseClick);
 
-    //Get the element containing the original url. From this we extract the slug
-    const og_urlAsArr = document.querySelector('[property="og:url"]').getAttribute('content').split('/');
-    showSlug = og_urlAsArr[6];
+        //Same event handler if the player is clicked
+        let player = document.getElementsByClassName('jw-video jw-reset')[0];
+        player.addEventListener('click', playPauseClick);
 
-    //Get the season and episode numbers
-    season = document.querySelector('[class="outPes"]').innerHTML;
-    episode = document.querySelector('[class="outPep"]').innerHTML;
-    console.log(`Show slug: ${showSlug}, Season: ${season}, Episode: ${episode}`);
-
-    let elapsedElement;
-    currentInterval = setInterval(() => {
-        elapsedElement = document.getElementsByClassName('jw-text-elapsed')[0];
-        if (elapsedElement != null) {
-            elapsed = elapsedElement.innerHTML; //Refreh elapsed with the latest value from innerHTML every "iteration"
-        }
-        console.log(elapsed); //DEBUG
-        let playerClasses = document.getElementById('player').getAttribute('class'); //css classes of the player
-        //If the classes include jw-state-paused, the player is paused
-        if (playerClasses.includes('jw-state-paused')) {
-            if (isPlaying) {
-                console.log("paused");
-                stopOrPause('pause');
+        //Same eventhandler if spacebar is pressed
+        document.body.onkeydown = (e) => {
+            if (e.keyCode == 32) {
+                playPauseListener()
             }
-            isPlaying = false; //Indicate paused
-        }
-        //Player is playing 
-        else {
-            if (!isPlaying) {
-                duration = durationToSeconds(document.getElementsByClassName('jw-text-duration')[0].textContent);
-                isPlaying = true; //indicate playing
-                //fire play api call
-                chrome.runtime.sendMessage({
-                    action: 'start',
-                    slug: showSlug,
-                    season: season,
-                    episode: episode,
-                    progress: 100 * durationToSeconds(elapsed) / duration
-                }, backgroundFeedback);
-            }
-        }
+        };
 
-    }, 1000);
+        //Change the elapsed property in the state every time it changes
+        const elapsedElement = document.getElementsByClassName('jw-text-elapsed')[0];
+        //Observe the elapsed div and update state on changes. Dont update if == '00:00' as for some reason that is what will be shown just before window closing
+        elapsedObserver = new MutationObserver(() => state.elapsed = elapsedElement.textContent != '00:00' ? elapsedElement.textContent : state.elapsed);
+        elapsedObserver.observe(elapsedElement, obsConfig);
+
+        //Observe the episode element and rerun setup if it changes (often autoplaying next episode)
+        const episodeElement = document.querySelector('[class="outPep"]');
+        episodeObserver = new MutationObserver(() => {
+            stopListener();
+            init();
+
+        });
+        episodeObserver.observe(episodeElement, obsConfig);
+
+        //Listen to attribute changes in player wrapper while player is ready. If it gets a class of hide, we believe the last available episode has been played
+        //and the player is hidden. Then stop playback on trakt and rerun init but force not to look for player.
+        const playerWrapper = document.getElementById('playerwrapper');
+        playerWrapperObserver = new MutationObserver((mutationsList, observer) => {
+            for (let mutation of mutationsList) {
+                if (mutation.target.getAttribute('class').includes('hide')) {
+                    stopListener();
+                    init(false);
+                    return;
+                }
+            }
+        });
+        playerWrapperObserver.observe(playerWrapper, {
+            attributes: true,
+            childList: false,
+            subtree: false
+        });
+
+        //Gather data about playing episode
+        state.duration = durationToSeconds(document.getElementsByClassName('jw-text-duration')[0].textContent);
+        state.slug = document.querySelector('[property="og:url"]').getAttribute('content').split('/')[6];
+        state.season = document.querySelector('[class="outPes"]').innerHTML;
+        state.episode = episodeElement.innerHTML;
+
+        //Reset initial state
+        state.isScrobbled = false;
+        state.elapsed = '00:00';
+
+        console.log("FST: Listeners set up and data gathered.");
+
+        //Start scrobbling and force action to play
+        playPauseListener(true);
+    } else {
+        currentTimeout = setTimeout(setup, 1000);
+    }
+}
+
+/**
+ * Simply calls playPauseListener. Used for click events to ignore the event parameter.
+ */
+const playPauseClick = () => playPauseListener();
+
+/**
+ * Called whenever the player is paused or played
+ * @param {boolean, true forces action to 'start'} forcePlay 
+ */
+const playPauseListener = (forcePlay = false) => {
+    let playPauseDiv = document.getElementsByClassName('jw-icon jw-icon-inline jw-button-color jw-reset jw-icon-playback')[0];
+    let playPause = playPauseDiv.getAttribute('aria-label').toLowerCase();
+
+    if (playPause == 'play' || playPause == 'pause' || forcePlay) {
+        let action = playPause == 'play' || forcePlay ? 'start' : 'pause';
+        state.isPlaying = playPause == 'play' || forcePlay;
+
+        callTraktApi(action);
+    }
+
+}
+
+/**
+ * Called when the back button is clicked or when the window/tab is closed.
+ * Also called manually whenever another episode is clicked from an episode link.
+ */
+const stopListener = () => {
+    let progress = 100 * durationToSeconds(state.elapsed) / state.duration;
+    //Require progress of more than 90% to call stop action to scrobble the episode
+    let action = progress > 90 && !state.isScrobbled ? 'stop' : 'pause';
+    state.isScrobbled = state.isScrobbled || progress > 90;
+
+    callTraktApi(action);
+    elapsedObserver.disconnect();
+    episodeObserver.disconnect();
+    playerWrapperObserver.disconnect();
 }
 
 /**
@@ -127,27 +213,30 @@ const durationToSeconds = (durationString) => {
     return seconds;
 }
 
-const stopOrPause = (action = 'stop') => {
-    let progress = 100 * durationToSeconds(elapsed) / duration;
-    console.log(action);
-    //Call stop action if progress is greater than 90% and it is not already scrobbled
-    if (progress > 90 && !isScrobbled && action == 'stop') {
-        console.log("Scrobbled");
-        isScrobbled = true;
-    }
-    //Fire pause/stop api call
+/**
+ * Calls the trakt api with the variables present in the state and the given action
+ * @param {The action to use when calling the API} action 
+ */
+const callTraktApi = (action) => {
     chrome.runtime.sendMessage({
         action: action,
-        slug: showSlug,
-        season: season,
-        episode: episode,
-        progress: progress
+        slug: state.slug,
+        season: state.season,
+        episode: state.episode,
+        progress: 100 * durationToSeconds(state.elapsed) / state.duration
     }, backgroundFeedback);
 }
 
-const backgroundFeedback = (msg) => console.log(`Background: ${msg}`);
+const backgroundFeedback = (msg) => console.log(`FST-background: ${msg}`);
+
+
 
 //initialize
 window.onload = init;
 
-window.onbeforeunload = () => stopOrPause();
+//When the user moves along from the window
+window.onbeforeunload = () => {
+    if (playerIsReady()) {
+        stopListener();
+    }
+};

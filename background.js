@@ -45,7 +45,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             .then(result => result.json())
             .then(episodeData => {
                 if (episodeData.title) {
-                    console.log(episodeData);
                     fetch(`https://api.trakt.tv/scrobble/${request.action}`, {
                             method: 'POST',
                             headers: {
