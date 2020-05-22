@@ -91,76 +91,94 @@ const playerIsAvailable = () => {
  */
 const setup = () => {
     if (playerIsReady()) {
-        clearTimeout(currentTimeout); //Clear the last made timeout. Used to make sure we don't have two timeouts at once.
-
-        //Add an event listener to the play/pause div
-        let playPauseDiv = document.getElementsByClassName('jw-icon jw-icon-inline jw-button-color jw-reset jw-icon-playback')[0];
-        playPauseDiv.addEventListener('click', playPauseClick);
-
-        //Same event handler if the player is clicked
-        let player = document.getElementsByClassName('jw-video jw-reset')[0];
-        player.addEventListener('click', playPauseClick);
-
-        //Same eventhandler if spacebar is pressed
-        document.body.onkeydown = (e) => {
-            if (e.keyCode == 32) {
-                playPauseListener()
-            }
-        };
-
-        //Change the elapsed property in the state every time it changes
-        const elapsedElement = document.getElementsByClassName('jw-text-elapsed')[0];
-        //Observe the elapsed div and update state on changes. Dont update if == '00:00' as for some reason that is what will be shown just before window closing
-        elapsedObserver = new MutationObserver(() => state.elapsed = elapsedElement.textContent != '00:00' ? elapsedElement.textContent : state.elapsed);
-        elapsedObserver.observe(elapsedElement, obsConfig);
-
-        //Observe the episode element and rerun setup if it changes (often autoplaying next episode)
-        const episodeElement = document.querySelector('[class="outPep"]');
-        episodeObserver = new MutationObserver(() => {
-            stopListener();
-            init();
-
-        });
-        episodeObserver.observe(episodeElement, obsConfig);
-
-        //Listen to attribute changes in player wrapper while player is ready. If it gets a class of hide, we believe the last available episode has been played
-        //and the player is hidden. Then stop playback on trakt and rerun init but force not to look for player.
-        const playerWrapper = document.getElementById('playerwrapper');
-        playerWrapperObserver = new MutationObserver((mutationsList, observer) => {
-            for (let mutation of mutationsList) {
-                if (mutation.target.getAttribute('class').includes('hide')) {
-                    stopListener();
-                    init(false);
-                    return;
-                }
-            }
-        });
-        playerWrapperObserver.observe(playerWrapper, {
-            attributes: true,
-            childList: false,
-            subtree: false
-        });
-
-        //Gather data about playing episode
-        state.duration = durationToSeconds(document.getElementsByClassName('jw-text-duration')[0].textContent);
-        state.season = document.querySelector('[class="outPes"]').innerHTML;
-        state.episode = episodeElement.innerHTML;
-        const imdbLink = document.querySelector('[title="Open IMDb"]').getAttribute('href').split('/');
-        let imdbId = imdbLink[imdbLink.length - 1];
-
-        chrome.runtime.sendMessage({
-            action: 'get_slug',
-            imdbId: imdbId
-        }, setShowSlug);
+        //Clear the last made timeout. Used to make sure we don't have two timeouts at once.
+        clearTimeout(currentTimeout);
 
         //Reset initial state
         state.isScrobbled = false;
         state.elapsed = '00:00';
 
-        console.log("FST: Listeners set up and data gathered.");
+        //Gather data about playing episode
+        state.duration = durationToSeconds(document.getElementsByClassName('jw-text-duration')[0].textContent);
+        state.season = document.querySelector('[class="outPes"]').innerHTML;
+        state.episode = document.querySelector('[class="outPep"]').innerHTML;
+        const imdbLink = document.querySelector('[title="Open IMDb"]').getAttribute('href').split('/');
+        let imdbId = imdbLink[imdbLink.length - 1];
+        chrome.runtime.sendMessage({
+            action: 'get_slug',
+            imdbId: imdbId
+        }, setupListeners); //setupListeners as callback in order to not proceed before slug is gotten from API
     } else {
         currentTimeout = setTimeout(setup, 1000);
     }
+}
+
+/**
+ * Setups the listeners for clicks, button presses and changes in text content
+ * @param {Show slug fetched from API} slug 
+ */
+const setupListeners = (slug) => {
+    //Set the slug
+    state.slug = slug;
+
+    //Add an event listener to the play/pause div
+    let playPauseDiv = document.getElementsByClassName('jw-icon jw-icon-inline jw-button-color jw-reset jw-icon-playback')[0];
+    playPauseDiv.addEventListener('click', playPauseClick);
+
+    //Same event handler if the player is clicked
+    let player = document.getElementsByClassName('jw-video jw-reset')[0];
+    player.addEventListener('click', playPauseClick);
+
+    //Same eventhandler if spacebar or enter is pressed
+    document.body.onkeydown = (e) => {
+        if (e.keyCode == 32 || e.keyCode == 13) {
+            playPauseListener()
+        }
+    };
+
+    //Change the elapsed property in the state every time it changes
+    const elapsedElement = document.getElementsByClassName('jw-text-elapsed')[0];
+    //Observe the elapsed div and update state on changes. Dont update if == '00:00' as for some reason that is what will be shown just before window closing
+    elapsedObserver = new MutationObserver(() => state.elapsed = elapsedElement.textContent != '00:00' ? elapsedElement.textContent : state.elapsed);
+    elapsedObserver.observe(elapsedElement, obsConfig);
+
+    //Observe the episode element and rerun setup if it changes (often autoplaying next episode)
+    const episodeElement = document.querySelector('[class="outPep"]');
+    episodeObserver = new MutationObserver(() => {
+        stopListener();
+        init();
+
+    });
+    episodeObserver.observe(episodeElement, obsConfig);
+
+    //Listen to attribute changes in player wrapper while player is ready. If it gets a class of hide, we believe the last available episode has been played
+    //and the player is hidden. Then stop playback on trakt and rerun init but force not to look for player.
+    const playerWrapper = document.getElementById('playerwrapper');
+    playerWrapperObserver = new MutationObserver((mutationsList, observer) => {
+        for (let mutation of mutationsList) {
+            if (mutation.target.getAttribute('class').includes('hide')) {
+                stopListener();
+                init(false);
+                return;
+            }
+        }
+    });
+    playerWrapperObserver.observe(playerWrapper, {
+        attributes: true,
+        childList: false,
+        subtree: false
+    });
+
+    //Wait for 2 seconds and check if player is playing, if so, set to playing state and start scrobbling
+    currentTimeout = setTimeout(() => {
+        let playerstate = document.getElementsByClassName('playerstate')[0].innerText;
+        if (playerstate.includes("Playing")) {
+            callTraktApi('start');
+            state.isPlaying = true;
+        }
+    }, 2000);
+
+    console.log("FST: Listeners set up and data gathered.");
 }
 
 /**
@@ -172,17 +190,16 @@ const playPauseClick = () => playPauseListener();
  * Called whenever the player is paused or played
  * @param {boolean, true forces action to 'start'} forcePlay 
  */
-const playPauseListener = (forcePlay = false) => {
+const playPauseListener = () => {
     let playPauseDiv = document.getElementsByClassName('jw-icon jw-icon-inline jw-button-color jw-reset jw-icon-playback')[0];
     let playPause = playPauseDiv.getAttribute('aria-label').toLowerCase();
 
-    if (playPause == 'play' || playPause == 'pause' || forcePlay) {
-        let action = playPause == 'play' || forcePlay ? 'start' : 'pause';
+    if (playPause == 'play' || playPause == 'pause') {
+        let action = playPause == 'play' ? 'start' : 'pause';
         state.isPlaying = playPause == 'play' || forcePlay;
 
         callTraktApi(action);
     }
-
 }
 
 /**
@@ -235,19 +252,6 @@ const callTraktApi = (action) => {
 }
 
 const backgroundFeedback = (msg) => console.log(`FST-background: ${msg}`);
-
-/**
- * Sets the slug in the state from the background using a callback.
- * @param {Slug string} slug 
- */
-const setShowSlug = (slug) => {
-    state.slug = slug;
-
-    //Start scrobbling and force action to play (Needs to happen after slug is available)
-    playPauseListener(true);
-}
-
-
 
 //initialize
 window.onload = init;
