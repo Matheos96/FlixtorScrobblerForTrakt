@@ -188,7 +188,6 @@ const playPauseClick = () => playPauseListener();
 
 /**
  * Called whenever the player is paused or played
- * @param {boolean, true forces action to 'start'} forcePlay 
  */
 const playPauseListener = () => {
     let playPauseDiv = document.getElementsByClassName('jw-icon jw-icon-inline jw-button-color jw-reset jw-icon-playback')[0];
