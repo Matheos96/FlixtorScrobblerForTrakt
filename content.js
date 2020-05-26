@@ -196,7 +196,7 @@ const playPauseListener = () => {
 
     if (playPause == 'play' || playPause == 'pause') {
         let action = playPause == 'play' ? 'start' : 'pause';
-        state.isPlaying = playPause == 'play' || forcePlay;
+        state.isPlaying = playPause == 'play';
 
         callTraktApi(action);
     }
