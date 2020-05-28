@@ -32,6 +32,52 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
             })
             .catch(err => sendResponse('Authentication failed. Wrong code?'));
+    }
+    //TODO: Implement this. just copy of authenticate above for now
+    else if (request.action == 'refresh') {
+        fetch('https://api.trakt.tv/oauth/token', {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    code: request.code,
+                    client_id: client_id,
+                    client_secret: client_secret,
+                    redirect_uri: redirect_uri,
+                    grant_type: 'authorization_code'
+                })
+            })
+            .then(result => result.json())
+            .then(data => {
+                if (data.access_token) {
+                    localStorage.setItem('access_token', data.access_token);
+                    localStorage.setItem('access_token_expires', data.created_at + data.expires_in);
+                    localStorage.setItem('refresh_token', data.refresh_token);
+                    sendResponse('Authenticated with Trakt!');
+                } else {
+                    sendResponse('Authentication failed. Wrong code?');
+                }
+
+            })
+            .catch(err => sendResponse('Authentication failed. Wrong code?'));
+    }
+    else if (request.action == 'revoke') {
+        fetch('https://api.trakt.tv/oauth/revoke', {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    token: request.token,
+                    client_id: client_id,
+                    client_secret: client_secret,
+                })
+            })
+            .then(result => result.json())
+            .catch(err => sendResponse('Deauthorization failed.'));
     } else if (request.action == 'get_slug') {
         fetch(`https://api.trakt.tv/search/imdb/${request.imdbId}`, {
                 method: 'GET',

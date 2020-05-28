@@ -1,6 +1,7 @@
 const init = () => {
     document.getElementById('authPIN').onclick = getAuthPin;
     document.getElementById('auth').onclick = authorize;
+    document.getElementById('de_auth').onclick = deauthorize;
     checkAuthenticated();
 }
 
@@ -16,20 +17,41 @@ const authorize = () => {
     }, authFeedback);
 }
 
+const deauthorize = () => {
+    const token = localStorage.getItem('access_token');
+    chrome.runtime.sendMessage({
+        action: 'revoke',
+        token: token
+    }, authFeedback);
+    localStorage.removeItem('access_token');
+    location.reload();
+}
+
 const authFeedback = (msg) => {
-    const div = document.createElement('div');
+    const div = document.getElementById('feedback');
     if (msg.startsWith('Authenticated')) {
+        //Hide menu if already authenticated
         const authMenu = document.getElementById('auth_menu');
         authMenu.style.display = 'none';
+        div.setAttribute('class', 'alert alert-success');
+        const deAuthBtn = document.getElementById('de_auth');
+        deAuthBtn.style.display = 'inline-block';
+    }
+    else if (msg.includes('failed')) {
+        div.setAttribute('class', 'alert alert-danger');
     }
     div.textContent = msg;
-    document.body.appendChild(div);
 }
 
 const checkAuthenticated = () => {
     if (localStorage.getItem('access_token') != null) {
-        authFeedback('Authenticated');
+        const unixTimeNow = Math.floor(Date.now() / 1000);
+        const expires = localStorage.getItem('access_token_expires');
+        
         //TODO: Check if expired, then, refresh token
+
+        authFeedback('Authenticated');
+        
     } else {
         authFeedback('Not authenticated.');
     }

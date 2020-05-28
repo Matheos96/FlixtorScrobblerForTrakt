@@ -256,6 +256,4 @@ const backgroundFeedback = (msg) => console.log(`FST-background: ${msg}`);
 window.onload = init;
 
 //When the user moves along from the window
-window.onbeforeunload = () => {
-    stopListener();
-}
+window.onbeforeunload = stopListener;
