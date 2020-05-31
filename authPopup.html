@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Flixtor Scrobbler for Trakt</title>
+    <link rel="stylesheet" type="text/css" href="lib/bootstrap.min.css">
+    <link rel="stylesheet" type="text/css" href="lib/main.css">
+</head>
+<body>
+    <div class="flex-container">
+        <div id="auth_menu">
+            <button id="authPIN" type="button" class="btn btn-primary">Get Trakt Auth-PIN</button>
+            <input class="form-control" type="text" id="traktID" required placeholder="Trakt Auth-PIN">
+            <button id="auth" type="button" class="btn btn-success">Authorize</button>
+        </div>
+        <div id="feedback" class="alert alert-warning" role="alert">Not Authenticated.</div>
+        <button id="de_auth" type="button" class="btn btn-danger">Deauthorize</button>
+    </div>
+
+    <script src="authPopup.js"></script>
+</body>
+</html>
